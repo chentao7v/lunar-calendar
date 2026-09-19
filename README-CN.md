@@ -3,7 +3,6 @@
 
 一个优雅、原生的 Raycast 农历与节假日查看扩展，专为 Mac 用户打造。无需打开繁琐的网页或系统日历，随时随地在 Raycast 中快速查阅农历、二十四节气、法定节假日调休安排及传统节日。
 
-![Extension Icon](assets/extension-icon.png)
 ![Image](images/img1.png)
 
 ## 💡 功能亮点
