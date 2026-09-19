@@ -4,6 +4,7 @@
 An elegant, native Raycast extension to check the Chinese Lunar Calendar and public holidays, designed specifically for macOS users. Easily view lunar dates, 24 solar terms, public holiday arrangements, and traditional festivals directly within Raycast.
 
 ![Extension Icon](assets/extension-icon.png)
+![Image](images/img1.png)
 
 ## 💡 Key Features
 
@@ -11,7 +12,6 @@ An elegant, native Raycast extension to check the Chinese Lunar Calendar and pub
 - 🏮 **Lunar Dates & Solar Terms**: Automatically calculates lunar dates (1st to 30th), Heavenly Stems and Earthly Branches, and displays 24 solar terms (e.g., Autumn Equinox, White Dew).
 - 🚩 **Public Holidays & Workdays**: Synchronizes the latest official public holiday schedules, clearly marking **"休"** (Off-days with red badges) and **"班"** (Adjusted workdays).
 - 🎉 **Traditional & Solar Festivals**: Highlights major traditional Chinese festivals (Spring Festival, Mid-Autumn Festival) and solar holidays (New Year's Day, National Day).
-- 🌐 **Internationalization (i18n)**: Automatically switches UI actions between Chinese and English based on your system language setting.
 
 ## ⌨️ Shortcuts
 
