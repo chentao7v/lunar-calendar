@@ -145,7 +145,9 @@ export default function Command() {
   }, [year, month, holidays]);
 
   const markdown = useMemo(() => {
-    const fullCalendarSvg = generateFullCalendarSvg(calendarData);
+    // 动态传入当前系统的主题模式（light 或 dark）
+    const isDark = environment.theme === "dark";
+    const fullCalendarSvg = generateFullCalendarSvg(calendarData, isDark);
 
     // Markdown 标题多语言适配
     const lang = environment.localization?.language || "en";
@@ -178,7 +180,7 @@ export default function Command() {
   );
 }
 
-// 判断是否有休假/补班状态（API 优先，失败时回退到 lunar-javascript 本地逻辑）
+// 判断是否有休假/补班状态
 function getHolidayStatus(solar: Solar, holidayItem?: HolidayItem): { isHoliday?: boolean; isWork?: boolean } {
   if (holidayItem) {
     return {
@@ -187,7 +189,6 @@ function getHolidayStatus(solar: Solar, holidayItem?: HolidayItem): { isHoliday?
     };
   }
 
-  // 降级使用 lunar-javascript 本地调休数据
   const h = HolidayUtil.getHoliday(solar.getYear(), solar.getMonth(), solar.getDay());
   if (h) {
     return {
@@ -201,12 +202,10 @@ function getHolidayStatus(solar: Solar, holidayItem?: HolidayItem): { isHoliday?
 
 // 获取农历或节日文本
 function getLunarText(solar: Solar, holidayItem?: HolidayItem): string {
-  // 1. 如果有 API 返回的假期名称（如中秋节、国庆节），优先展示
   if (holidayItem && holidayItem.holiday && holidayItem.name) {
     return holidayItem.name;
   }
 
-  // 2. 核心阳历节日白名单（过滤掉像“全国国防教育日”这类冷门纪念日）
   const mainSolarFestivals = [
     "元旦",
     "妇女节",
@@ -234,11 +233,9 @@ function getLunarText(solar: Solar, holidayItem?: HolidayItem): string {
 
   const lunar = solar.getLunar();
 
-  // 3. 24 节气（秋分、白露等）
   const jieQi = lunar.getJieQi();
   if (jieQi) return jieQi;
 
-  // 4. 传统农历节日白名单
   const mainLunarFestivals = ["除夕", "春节", "元宵节", "端午节", "七夕节", "中秋节", "重阳节", "腊八节"];
   const lunarFestivals = lunar.getFestivals();
   for (const f of lunarFestivals) {
@@ -247,7 +244,6 @@ function getLunarText(solar: Solar, holidayItem?: HolidayItem): string {
     }
   }
 
-  // 5. 农历初一展示月份，其余展示初几/几十
   const lunarDay = lunar.getDayInChinese();
   if (lunarDay === "初一") {
     return `${lunar.getMonthInChinese()}月`;
@@ -256,7 +252,6 @@ function getLunarText(solar: Solar, holidayItem?: HolidayItem): string {
   return lunarDay;
 }
 
-// 补充日历单元格类型
 interface CalendarCell {
   day: number;
   isCurrentMonth: boolean;
@@ -268,8 +263,8 @@ interface CalendarCell {
   isWeekend: boolean;
 }
 
-// 渲染整张完整月历 SVG
-function generateFullCalendarSvg(calendarData: CalendarCell[]) {
+// 渲染整张完整月历 SVG（自动根据 isDark 切换配色）
+function generateFullCalendarSvg(calendarData: CalendarCell[], isDark: boolean) {
   const fontFamily = "system-ui, sans-serif";
   const colWidth = 100;
   const rowHeight = 85;
@@ -279,15 +274,38 @@ function generateFullCalendarSvg(calendarData: CalendarCell[]) {
   const rowCount = Math.ceil(calendarData.length / 7);
   const totalHeight = headerHeight + rowCount * rowHeight;
 
+  // 主题配色字典（定义 Light 与 Dark 差异，角标与高亮红/蓝保持统一）
+  const theme = {
+    weekdayHeader: isDark ? "#A0AEC0" : "#718096",
+    weekendHeader: isDark ? "#FF4D4F" : "#EB3434",
+
+    // 公历数字文本
+    currentMonthText: isDark ? "#FFFFFF" : "#1a202c",
+    otherMonthText: isDark ? "#4A5568" : "#a0aec0",
+    weekendText: isDark ? "#FF4D4F" : "#EB3434",
+
+    // 农历文本
+    currentMonthLunar: isDark ? "#A0AEC0" : "#718096",
+    otherMonthLunar: isDark ? "#4A5568" : "#cbd5e0",
+    weekendLunar: isDark ? "#FF4D4F" : "#EB3434",
+
+    // 调休（班）日文本
+    workText: isDark ? "#CBD5E0" : "#4E5877",
+    workLunar: isDark ? "#A0AEC0" : "#4E5877",
+
+    // 休假背景
+    holidayBg: isDark ? "#FA52521F" : "#FA52520A",
+  };
+
   // 表头
   const headers = [
-    { text: "一", color: "#718096" },
-    { text: "二", color: "#718096" },
-    { text: "三", color: "#718096" },
-    { text: "四", color: "#718096" },
-    { text: "五", color: "#718096" },
-    { text: "六", color: "#EB3434" },
-    { text: "日", color: "#EB3434" },
+    { text: "一", color: theme.weekdayHeader },
+    { text: "二", color: theme.weekdayHeader },
+    { text: "三", color: theme.weekdayHeader },
+    { text: "四", color: theme.weekdayHeader },
+    { text: "五", color: theme.weekdayHeader },
+    { text: "六", color: theme.weekendHeader },
+    { text: "日", color: theme.weekendHeader },
   ];
 
   const headerSvg = headers
@@ -319,31 +337,32 @@ function generateFullCalendarSvg(calendarData: CalendarCell[]) {
       const rectY = centerY - cardH / 2;
 
       let rectSvg = "";
-      let textColor = item.isCurrentMonth ? "#1a202c" : "#a0aec0";
-      let lunarColor = item.isCurrentMonth ? "#718096" : "#cbd5e0";
+      let textColor = item.isCurrentMonth ? theme.currentMonthText : theme.otherMonthText;
+      let lunarColor = item.isCurrentMonth ? theme.currentMonthLunar : theme.otherMonthLunar;
       let badgeSvg = "";
 
+      // 当月周末
       if (item.isCurrentMonth && item.isWeekend) {
-        textColor = "#EB3434";
-        lunarColor = "#EB3434";
+        textColor = theme.weekendText;
+        lunarColor = theme.weekendLunar;
       }
 
-      // 调休/放假处理（API 数据或本地兜底数据）
+      // 1. 调休（班）：角标 fill="#4E5877" 保持不变
       if (item.holidayStatus.isWork) {
-        // 班
-        textColor = "#4E5877";
-        lunarColor = "#4E5877";
+        textColor = theme.workText;
+        lunarColor = theme.workLunar;
         const bX = rectX + cardW - badgeW / 2;
         const bY = rectY - badgeH / 2;
         badgeSvg = `
           <rect x="${bX}" y="${bY}" width="${badgeW}" height="${badgeH}" rx="4" fill="#4E5877"/>
           <text x="${bX + badgeW / 2}" y="${bY + 13}" font-size="11" font-weight="bold" fill="#ffffff" text-anchor="middle" font-family="${fontFamily}">班</text>
         `;
-      } else if (item.holidayStatus.isHoliday) {
-        // 休（法定节假日背景 #FA52520A）
-        rectSvg = `<rect x="${rectX}" y="${rectY}" width="${cardW}" height="${cardH}" rx="10" fill="#FA52520A"/>`;
-        textColor = "#EB3434";
-        lunarColor = "#EB3434";
+      }
+      // 2. 放假（休）：角标 fill="#EB3434" 保持不变
+      else if (item.holidayStatus.isHoliday) {
+        rectSvg = `<rect x="${rectX}" y="${rectY}" width="${cardW}" height="${cardH}" rx="10" fill="${theme.holidayBg}"/>`;
+        textColor = isDark ? "#FF4D4F" : "#EB3434";
+        lunarColor = isDark ? "#FF4D4F" : "#EB3434";
         const bX = rectX + cardW - badgeW / 2;
         const bY = rectY - badgeH / 2;
         badgeSvg = `
@@ -352,7 +371,7 @@ function generateFullCalendarSvg(calendarData: CalendarCell[]) {
         `;
       }
 
-      // 今天：边框 #4E6EF2（优先级最高，覆盖背景/加上“今”字角标）
+      // 3. 今天（今）：蓝色高亮框，角标 fill="#4E6EF2" 保持不变
       if (item.isToday) {
         rectSvg = `<rect x="${rectX}" y="${rectY}" width="${cardW}" height="${cardH}" rx="10" fill="none" stroke="#4E6EF2" stroke-width="2"/>`;
         textColor = "#4E6EF2";
