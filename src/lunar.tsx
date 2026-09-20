@@ -1,14 +1,28 @@
 import fetch from "cross-fetch";
-import { Detail, ActionPanel, Action, LocalStorage, environment } from "@raycast/api";
+import {
+  Detail,
+  ActionPanel,
+  Action,
+  LocalStorage,
+  environment,
+} from "@raycast/api";
 import { useState, useMemo, useEffect } from "react";
 import { Solar, HolidayUtil } from "lunar-javascript";
 
 import zhTranslations from "../locales/zh.json";
 import enTranslations from "../locales/en.json";
 
+// 兼容 Raycast 不同版本的 localization 属性读取，解决 TS2339 报错
+function getLanguage(): string {
+  const env = environment as unknown as {
+    localization?: { language?: string };
+  };
+  return env.localization?.language || "en";
+}
+
 // 国际化翻译函数
 function t(key: keyof typeof zhTranslations): string {
-  const lang = environment.localization?.language || "en";
+  const lang = getLanguage();
   const translations = lang.startsWith("zh") ? zhTranslations : enTranslations;
   return translations[key] || zhTranslations[key];
 }
@@ -26,6 +40,17 @@ interface HolidayMap {
   [dateStr: string]: HolidayItem; // Key 格式: YYYY-MM-DD
 }
 
+interface CalendarCell {
+  day: number;
+  isCurrentMonth: boolean;
+  solar: Solar;
+  dateStr: string;
+  lunarText: string;
+  holidayStatus: { isHoliday?: boolean; isWork?: boolean };
+  isToday: boolean;
+  isWeekend: boolean;
+}
+
 export default function Command() {
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [holidays, setHolidays] = useState<HolidayMap>({});
@@ -33,8 +58,10 @@ export default function Command() {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
 
-  // 1. 动态加载节假日数据（带 LocalStorage 缓存）
+  // 1. 动态加载节假日数据（带 LocalStorage 缓存与防清理）
   useEffect(() => {
+    let isMounted = true;
+
     async function loadHolidays() {
       const cacheKey = `holidays_${year}`;
 
@@ -42,7 +69,9 @@ export default function Command() {
       const cachedData = await LocalStorage.getItem<string>(cacheKey);
       if (cachedData) {
         try {
-          setHolidays(JSON.parse(cachedData));
+          if (isMounted) {
+            setHolidays(JSON.parse(cachedData));
+          }
           return;
         } catch (e) {
           console.error("解析本地缓存失败", e);
@@ -51,10 +80,15 @@ export default function Command() {
 
       // 从网络 API 获取最新数据并更新缓存
       try {
-        const response = await fetch(`https://timor.tech/api/holiday/year/${year}/`);
-        const json = (await response.json()) as { code: number; holiday?: HolidayMap };
+        const response = await fetch(
+          `https://timor.tech/api/holiday/year/${year}/`,
+        );
+        const json = (await response.json()) as {
+          code: number;
+          holiday?: HolidayMap;
+        };
 
-        if (json.code === 0 && json.holiday) {
+        if (json.code === 0 && json.holiday && isMounted) {
           setHolidays(json.holiday);
           await LocalStorage.setItem(cacheKey, JSON.stringify(json.holiday));
         }
@@ -64,6 +98,10 @@ export default function Command() {
     }
 
     loadHolidays();
+
+    return () => {
+      isMounted = false;
+    };
   }, [year]);
 
   // 2. 构建当月日历数据
@@ -76,7 +114,7 @@ export default function Command() {
     if (firstDayOfWeek === -1) firstDayOfWeek = 6;
 
     const totalDays = new Date(year, month, 0).getDate();
-    const cells = [];
+    const cells: CalendarCell[] = [];
 
     // 上月补齐
     const prevMonthTotalDays = new Date(year, month - 1, 0).getDate();
@@ -149,21 +187,30 @@ export default function Command() {
     const isDark = environment.theme === "dark";
     const fullCalendarSvg = generateFullCalendarSvg(calendarData, isDark);
 
-    // Markdown 标题多语言适配
-    const lang = environment.localization?.language || "en";
+    // Markdown 标题多语言适配（调用已做类型兼容处理的 getLanguage 函数）
+    const lang = getLanguage();
     let titleText = "";
     if (lang.startsWith("zh")) {
       titleText = `${year}年 ${month}月`;
     } else {
-      const monthName = new Date(year, month - 1).toLocaleString("en-US", { month: "long" });
+      const monthName = new Date(year, month - 1).toLocaleString("en-US", {
+        month: "long",
+      });
       titleText = `${monthName} ${year}`;
     }
 
     return `# ${titleText}\n\n![Calendar](${fullCalendarSvg})`;
   }, [year, month, calendarData]);
 
-  const nextMonth = () => setCurrentDate(new Date(year, month, 1));
-  const prevMonth = () => setCurrentDate(new Date(year, month - 2, 1));
+  // 使用准确的相对月份加减，规避构造函数越界偏差
+  const nextMonth = () =>
+    setCurrentDate(
+      new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1),
+    );
+  const prevMonth = () =>
+    setCurrentDate(
+      new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1),
+    );
   const resetToday = () => setCurrentDate(new Date());
 
   return (
@@ -171,9 +218,21 @@ export default function Command() {
       markdown={markdown}
       actions={
         <ActionPanel>
-          <Action title={t("nextMonth")} shortcut={{ modifiers: ["cmd"], key: "arrowRight" }} onAction={nextMonth} />
-          <Action title={t("prevMonth")} shortcut={{ modifiers: ["cmd"], key: "arrowLeft" }} onAction={prevMonth} />
-          <Action title={t("today")} shortcut={{ modifiers: ["cmd"], key: "t" }} onAction={resetToday} />
+          <Action
+            title={t("nextMonth")}
+            shortcut={{ modifiers: ["cmd"], key: "arrowRight" }}
+            onAction={nextMonth}
+          />
+          <Action
+            title={t("prevMonth")}
+            shortcut={{ modifiers: ["cmd"], key: "arrowLeft" }}
+            onAction={prevMonth}
+          />
+          <Action
+            title={t("today")}
+            shortcut={{ modifiers: ["cmd"], key: "t" }}
+            onAction={resetToday}
+          />
         </ActionPanel>
       }
     />
@@ -181,7 +240,10 @@ export default function Command() {
 }
 
 // 判断是否有休假/补班状态
-function getHolidayStatus(solar: Solar, holidayItem?: HolidayItem): { isHoliday?: boolean; isWork?: boolean } {
+function getHolidayStatus(
+  solar: Solar,
+  holidayItem?: HolidayItem,
+): { isHoliday?: boolean; isWork?: boolean } {
   if (holidayItem) {
     return {
       isHoliday: holidayItem.holiday,
@@ -189,7 +251,11 @@ function getHolidayStatus(solar: Solar, holidayItem?: HolidayItem): { isHoliday?
     };
   }
 
-  const h = HolidayUtil.getHoliday(solar.getYear(), solar.getMonth(), solar.getDay());
+  const h = HolidayUtil.getHoliday(
+    solar.getYear(),
+    solar.getMonth(),
+    solar.getDay(),
+  );
   if (h) {
     return {
       isHoliday: !h.isWork(),
@@ -197,7 +263,7 @@ function getHolidayStatus(solar: Solar, holidayItem?: HolidayItem): { isHoliday?
     };
   }
 
-  return {};
+  return { isHoliday: false, isWork: false };
 }
 
 // 获取农历或节日文本
@@ -236,7 +302,16 @@ function getLunarText(solar: Solar, holidayItem?: HolidayItem): string {
   const jieQi = lunar.getJieQi();
   if (jieQi) return jieQi;
 
-  const mainLunarFestivals = ["除夕", "春节", "元宵节", "端午节", "七夕节", "中秋节", "重阳节", "腊八节"];
+  const mainLunarFestivals = [
+    "除夕",
+    "春节",
+    "元宵节",
+    "端午节",
+    "七夕节",
+    "中秋节",
+    "重阳节",
+    "腊八节",
+  ];
   const lunarFestivals = lunar.getFestivals();
   for (const f of lunarFestivals) {
     if (mainLunarFestivals.includes(f)) {
@@ -249,22 +324,14 @@ function getLunarText(solar: Solar, holidayItem?: HolidayItem): string {
     return `${lunar.getMonthInChinese()}月`;
   }
 
-  return lunarDay;
-}
-
-interface CalendarCell {
-  day: number;
-  isCurrentMonth: boolean;
-  solar: Solar;
-  dateStr: string;
-  lunarText: string;
-  holidayStatus: { isHoliday?: boolean; isWork?: boolean };
-  isToday: boolean;
-  isWeekend: boolean;
+  return lunarDay || "";
 }
 
 // 渲染整张完整月历 SVG（自动根据 isDark 切换配色）
-function generateFullCalendarSvg(calendarData: CalendarCell[], isDark: boolean) {
+function generateFullCalendarSvg(
+  calendarData: CalendarCell[],
+  isDark: boolean,
+) {
   const fontFamily = "system-ui, sans-serif";
   const colWidth = 100;
   const rowHeight = 85;
@@ -337,8 +404,12 @@ function generateFullCalendarSvg(calendarData: CalendarCell[], isDark: boolean) 
       const rectY = centerY - cardH / 2;
 
       let rectSvg = "";
-      let textColor = item.isCurrentMonth ? theme.currentMonthText : theme.otherMonthText;
-      let lunarColor = item.isCurrentMonth ? theme.currentMonthLunar : theme.otherMonthLunar;
+      let textColor = item.isCurrentMonth
+        ? theme.currentMonthText
+        : theme.otherMonthText;
+      let lunarColor = item.isCurrentMonth
+        ? theme.currentMonthLunar
+        : theme.otherMonthLunar;
       let badgeSvg = "";
 
       // 当月周末
@@ -401,5 +472,6 @@ function generateFullCalendarSvg(calendarData: CalendarCell[], isDark: boolean) 
     ${cellsSvg}
   </svg>`;
 
-  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+  // 使用 encodeURIComponent 编码，规避 @types/node 缺失下的 Buffer 报错
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
